@@ -72,17 +72,11 @@ class TCAVTest(absltest.TestCase):
   def test_create_comparison_splits(self):
     random.seed(0)
 
-    dataset_examples = [
+    non_concept_examples = [
         {
             'id': '1',
             'data': {
                 'segment': 'a'
-            }
-        },
-        {
-            'id': '2',
-            'data': {
-                'segment': 'b'
             }
         },
         {
@@ -100,9 +94,8 @@ class TCAVTest(absltest.TestCase):
     ]
     concept_set_ids = ['2']
     # Generates 3 splits of size 1.
-    result = self.tcav.create_comparison_splits(dataset_examples,
-                                                concept_set_ids,
-                                                num_splits=3)
+    result = self.tcav.create_splits(non_concept_examples, len(concept_set_ids),
+                                     num_splits=3)
     expected = [[{'data': {'segment': 'c'}, 'id': '3'}],
                 [{'data': {'segment': 'c'}, 'id': '3'}],
                 [{'data': {'segment': 'a'}, 'id': '1'}]]
@@ -219,6 +212,101 @@ class TCAVTest(absltest.TestCase):
                 1.6669444907484283, 1.6669444907484283
             ],
             'accuracy': 0.3333333333333333
+        }
+    }
+    self.assertDictEqual(expected, result[0])
+
+  def test_tcav_sample_from_positive(self):
+    # Tests the case where more concept examples are passed than non-concept
+    # examples, so the concept set is sampled from the concept examples.
+
+    random.seed(0)  # Sets seed since create_comparison_splits() uses random.
+
+    # Basic test with dummy outputs from the model.
+    examples = [
+        {'segment': 'a'},
+        {'segment': 'b'},
+        {'segment': 'c'},
+        {'segment': 'd'},
+        {'segment': 'e'},
+        {'segment': 'f'},
+        {'segment': 'g'},
+        {'segment': 'h'}]
+    indexed_inputs = [
+        {
+            'id': '1',
+            'data': {
+                'segment': 'a'
+            }
+        },
+        {
+            'id': '2',
+            'data': {
+                'segment': 'b'
+            }
+        },
+        {
+            'id': '3',
+            'data': {
+                'segment': 'c'
+            }
+        },
+        {
+            'id': '4',
+            'data': {
+                'segment': 'd'
+            }
+        },
+        {
+            'id': '5',
+            'data': {
+                'segment': 'e'
+            }
+        },
+        {
+            'id': '6',
+            'data': {
+                'segment': 'f'
+            }
+        },
+        {
+            'id': '7',
+            'data': {
+                'segment': 'g'
+            }
+        },
+        {
+            'id': '8',
+            'data': {
+                'segment': 'h'
+            }
+        },
+    ]
+    model = TestModelClassificationTCAV()
+    dataset_spec = {'segment': lit_types.TextSegment()}
+    dataset = lit_dataset.Dataset(dataset_spec, examples)
+    config = {
+        'concept_set_ids': ['1', '3', '4', '5', '8'],
+        'class_to_explain': '1',
+        'grad_layer': 'cls_grad',
+        'random_state': 0
+    }
+    result = self.tcav.run_with_metadata(indexed_inputs, model, dataset,
+                                         config=config)
+
+    self.assertLen(result, 1)
+    expected = {
+        'p_val': 0.0,
+        'result': {
+            'score': 1.0,
+            'cos_sim': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            'dot_prods': [
+                2.0589251447995237e-14, 2.0589251447995237e-14,
+                2.0589251447995237e-14, 2.0589251447995237e-14,
+                2.0589251447995237e-14, 2.0589251447995237e-14,
+                2.0589251447995237e-14, 2.0589251447995237e-14
+            ],
+            'accuracy': 0.5
         }
     }
     self.assertDictEqual(expected, result[0])

@@ -74,17 +74,12 @@ class TCAV(lit_components.Interpreter):
       - MulticlassPreds (`probas`)
   """
 
-  def create_comparison_splits(self, dataset_examples, ids_set,
-                               num_splits=NUM_SPLITS):
+  def create_splits(self, examples, split_length, num_splits=NUM_SPLITS):
     """Creates randomly sampled splits for multiple TCAV runs."""
     splits = []
 
-    # Exclude concept_set examples.
-    filtered_examples = list(filter(lambda ex: ex['id'] not in ids_set,
-                                    dataset_examples))
-
     for _ in range(num_splits):
-      splits.append(random.sample(filtered_examples, len(ids_set)))
+      splits.append(random.sample(examples, split_length))
     return splits
 
   def hyp_test(self, scores):
@@ -135,23 +130,44 @@ class TCAV(lit_components.Interpreter):
 
     ids_set = set(config.concept_set_ids)
     concept_set = [ex for ex in dataset_examples if ex['id'] in ids_set]
+    non_concept_set = [ex for ex in dataset_examples if ex['id'] not in ids_set]
 
     # Get outputs using model.predict().
-    concept_outputs = list(model.predict_with_metadata(concept_set))
     dataset_outputs = list(model.predict_with_metadata(dataset_examples))
 
-    # Create random splits of the dataset to use as comparison sets.
-    splits = self.create_comparison_splits(dataset_examples, ids_set)
-
-    # Call run_tcav() on each comparison set.
     concept_results = []
-    for comparison_set in splits:
-      comparison_outputs = list(model.predict_with_metadata(comparison_set))
-      concept_results.append(
-          self._run_tcav(concept_outputs, comparison_outputs, dataset_outputs,
-                         config.class_to_explain, emb_layer, grad_layer,
-                         grad_class_key, config.test_size,
-                         config.random_state))
+    majority_concept_set = len(concept_set) > len(dataset_examples) / 2
+    if majority_concept_set:
+      # If there are more concept set examples than non-concept set examples,
+      # create random splits of the concept examples to use as the concept set.
+      concept_splits = self.create_splits(concept_set, len(non_concept_set))
+      # And use the remainder of the dataset as the comparison set.
+      comparison_outputs = list(model.predict_with_metadata(non_concept_set))
+
+      # Call run_tcav() on each concept set.
+      for concept_split in concept_splits:
+        concept_outputs = list(model.predict_with_metadata(concept_split))
+        concept_results.append(
+            self._run_tcav(concept_outputs, comparison_outputs, dataset_outputs,
+                           config.class_to_explain, emb_layer, grad_layer,
+                           grad_class_key, config.test_size,
+                           config.random_state))
+    else:
+      # If there are more non-concept set examples than concept set examples,
+      # use always use the concept examples as the concept set.
+      concept_outputs = list(model.predict_with_metadata(concept_set))
+      # And create random splits of non-concept examples to use as comparison
+      # sets.
+      comparison_splits = self.create_splits(non_concept_set, len(concept_set))
+
+      # Call run_tcav() on each comparison set.
+      for comparison_set in comparison_splits:
+        comparison_outputs = list(model.predict_with_metadata(comparison_set))
+        concept_results.append(
+            self._run_tcav(concept_outputs, comparison_outputs, dataset_outputs,
+                           config.class_to_explain, emb_layer, grad_layer,
+                           grad_class_key, config.test_size,
+                           config.random_state))
 
     cav_scores = [res['score'] for res in concept_results]
     p_val = self.hyp_test(cav_scores)
